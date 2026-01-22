@@ -13,11 +13,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-} from "@mui/icons-material";
+import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon } from "@mui/icons-material";
 import {
   Box,
   Button,
@@ -45,19 +41,19 @@ import {
 import { Form, Formik } from "formik";
 import * as Yup from "yup";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { ConferenceEventType, State } from "@/types/types";
+import { ConferenceEventType } from "@/types/types";
 import NoDataImage from "@assets/images/no-data.svg";
 import StateWithImage from "@component/ui/StateWithImage";
 import { useConfirmationModalContext } from "@context/DialogContext";
+import ErrorHandler from "@root/src/component/common/ErrorHandler";
 import {
-  createEventType,
-  deleteEventType,
-  fetchEventTypes,
-  updateEventType,
-} from "@slices/eventTypesSlice/eventTypes";
-import { RootState, useAppDispatch, useAppSelector } from "@slices/store";
+  useCreateEventTypeMutation,
+  useDeleteEventTypeMutation,
+  useFetchEventTypesQuery,
+  useUpdateEventTypeMutation,
+} from "@root/src/services/eventTypesApi";
 import { ConfirmationType } from "@utils/types";
 
 interface EventTypeFormValues {
@@ -68,17 +64,30 @@ interface EventTypeFormValues {
 }
 
 export default function EventTypesManagement() {
-  const dispatch = useAppDispatch();
   const theme = useTheme();
   const { showConfirmation } = useConfirmationModalContext();
-  const { eventTypes, state } = useAppSelector((state: RootState) => state.eventTypes);
+
+  const { data: eventTypes, isLoading } = useFetchEventTypesQuery();
+  const [createEventTypeMutation, { isLoading: isCreating }] = useCreateEventTypeMutation();
+  const [updateEventTypeMutation, { isLoading: isUpdating }] = useUpdateEventTypeMutation();
+  const [deleteEventTypeMutation, { isLoading: isDeleting }] = useDeleteEventTypeMutation();
+
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingEventType, setEditingEventType] = useState<ConferenceEventType | null>(null);
 
-  useEffect(() => {
-    dispatch(fetchEventTypes());
-  }, [dispatch]);
+  // Show loading state while data is being fetched
+  if (isLoading) {
+    return (
+      <Container maxWidth="lg" sx={{ mt: { xs: 2, sm: 4 }, mb: { xs: 2, sm: 4 } }}>
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+          <CircularProgress />
+        </Box>
+      </Container>
+    );
+  }
+
+  if (!eventTypes) return <ErrorHandler message={"No Qr Code Found"} />;
 
   const generalEventTypes = eventTypes.filter((et) => et.category === "GENERAL");
   const systemEventTypes = eventTypes.filter((et) => et.category !== "GENERAL");
@@ -95,15 +104,16 @@ export default function EventTypesManagement() {
   });
 
   const handleCreate = async (values: EventTypeFormValues) => {
-    const result = await dispatch(
-      createEventType({
+    try {
+      await createEventTypeMutation({
         ...values,
         defaultCoins: Number(values.defaultCoins),
-      }),
-    );
-    if (createEventType.fulfilled.match(result)) {
+      }).unwrap();
       setCreateModalOpen(false);
-      dispatch(fetchEventTypes());
+      // RTK Query automatically refetches due to cache invalidation
+    } catch (error) {
+      console.error("Failed to create event type:", error);
+      // Handle error (show toast, etc.)
     }
   };
 
@@ -114,17 +124,18 @@ export default function EventTypesManagement() {
 
   const handleUpdate = async (values: EventTypeFormValues) => {
     if (!editingEventType) return;
-    const result = await dispatch(
-      updateEventType({
+    try {
+      await updateEventTypeMutation({
         eventTypeName: editingEventType.eventTypeName,
         description: values.description,
         defaultCoins: Number(values.defaultCoins),
-      }),
-    );
-    if (updateEventType.fulfilled.match(result)) {
+      }).unwrap();
       setEditModalOpen(false);
       setEditingEventType(null);
-      dispatch(fetchEventTypes());
+      // RTK Query automatically refetches due to cache invalidation
+    } catch (error) {
+      console.error("Failed to update event type:", error);
+      // Handle error (show toast, etc.)
     }
   };
 
@@ -134,9 +145,12 @@ export default function EventTypesManagement() {
       `Are you sure you want to delete the event type "${eventType.eventTypeName}"? This action cannot be undone.`,
       ConfirmationType.delete,
       async () => {
-        const result = await dispatch(deleteEventType(eventType.eventTypeName));
-        if (deleteEventType.fulfilled.match(result)) {
-          dispatch(fetchEventTypes());
+        try {
+          await deleteEventTypeMutation(eventType.eventTypeName).unwrap();
+          // RTK Query automatically refetches due to cache invalidation
+        } catch (error) {
+          console.error("Failed to delete event type:", error);
+          // Handle error (show toast, etc.)
         }
       },
       "Delete",
@@ -180,146 +194,145 @@ export default function EventTypesManagement() {
         </Button>
       </Box>
 
-      {state === State.loading && eventTypes.length === 0 ? (
-        <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <>
-          {/* System Event Types (Read-only) */}
-          {systemEventTypes.length > 0 && (
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  System Event Types
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  These event types are system-defined. You can update the description and default coins, but they cannot be deleted.
-                </Typography>
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ width: "25%" }}>Event Type Name</TableCell>
-                        <TableCell sx={{ width: "40%" }}>Description</TableCell>
-                        <TableCell sx={{ width: "15%" }}>Default Coins</TableCell>
-                        <TableCell align="right" sx={{ width: "20%" }}>Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {systemEventTypes.map((eventType) => (
-                        <TableRow key={eventType.eventTypeName}>
-                          <TableCell sx={{ width: "25%" }}>
-                            <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                              {eventType.eventTypeName}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ width: "40%" }}>
-                            <Typography variant="body2" color="text.secondary">
-                              {eventType.description || "-"}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ width: "15%" }}>
-                            <Typography variant="body2">{eventType.defaultCoins}</Typography>
-                          </TableCell>
-                          <TableCell align="right" sx={{ width: "20%" }}>
-                            <Stack direction="row" spacing={1} justifyContent="flex-end">
-                              <Tooltip title="Edit Event Type" arrow>
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={() => handleEdit(eventType)}
-                                >
-                                  <EditIcon />
-                                </IconButton>
-                              </Tooltip>
-                            </Stack>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* General Event Types (Editable) */}
-          <Card>
+      <>
+        {/* System Event Types (Read-only) */}
+        {systemEventTypes.length > 0 && (
+          <Card sx={{ mb: 3 }}>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2 }}>
-                General Event Types
+                System Event Types
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Manage custom event types. You can create, update, or delete these event types.
+                These event types are system-defined. You can update the description and default
+                coins, but they cannot be deleted.
               </Typography>
-              {generalEventTypes.length === 0 ? (
-                <Box sx={{ py: 6 }}>
-                  <StateWithImage
-                    message="No general event types found. Create your first event type!"
-                    imageUrl={NoDataImage}
-                  />
-                </Box>
-              ) : (
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ width: "25%" }}>Event Type Name</TableCell>
-                        <TableCell sx={{ width: "40%" }}>Description</TableCell>
-                        <TableCell sx={{ width: "15%" }}>Default Coins</TableCell>
-                        <TableCell align="right" sx={{ width: "20%" }}>Actions</TableCell>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ width: "25%" }}>Event Type Name</TableCell>
+                      <TableCell sx={{ width: "40%" }}>Description</TableCell>
+                      <TableCell sx={{ width: "15%" }}>Default Coins</TableCell>
+                      <TableCell align="right" sx={{ width: "20%" }}>
+                        Actions
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {systemEventTypes.map((eventType) => (
+                      <TableRow key={eventType.eventTypeName}>
+                        <TableCell sx={{ width: "25%" }}>
+                          <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                            {eventType.eventTypeName}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ width: "40%" }}>
+                          <Typography variant="body2" color="text.secondary">
+                            {eventType.description || "-"}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ width: "15%" }}>
+                          <Typography variant="body2">{eventType.defaultCoins}</Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ width: "20%" }}>
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Tooltip title="Edit Event Type" arrow>
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleEdit(eventType)}
+                              >
+                                <EditIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
+                        </TableCell>
                       </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {generalEventTypes.map((eventType) => (
-                        <TableRow key={eventType.eventTypeName}>
-                          <TableCell sx={{ width: "25%" }}>
-                            <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                              {eventType.eventTypeName}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ width: "40%" }}>
-                            <Typography variant="body2" color="text.secondary">
-                              {eventType.description || "-"}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ width: "15%" }}>
-                            <Typography variant="body2">{eventType.defaultCoins}</Typography>
-                          </TableCell>
-                          <TableCell align="right" sx={{ width: "20%" }}>
-                            <Stack direction="row" spacing={1} justifyContent="flex-end">
-                              <Tooltip title="Edit Event Type" arrow>
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={() => handleEdit(eventType)}
-                                >
-                                  <EditIcon />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Delete Event Type" arrow>
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => handleDelete(eventType)}
-                                >
-                                  <DeleteIcon />
-                                </IconButton>
-                              </Tooltip>
-                            </Stack>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             </CardContent>
           </Card>
-          <Box sx={{ height: 36 }} />
-        </>
-      )}
+        )}
+
+        {/* General Event Types (Editable) */}
+        <Card>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              General Event Types
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Manage custom event types. You can create, update, or delete these event types.
+            </Typography>
+            {generalEventTypes.length === 0 ? (
+              <Box sx={{ py: 6 }}>
+                <StateWithImage
+                  message="No general event types found. Create your first event type!"
+                  imageUrl={NoDataImage}
+                />
+              </Box>
+            ) : (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ width: "25%" }}>Event Type Name</TableCell>
+                      <TableCell sx={{ width: "40%" }}>Description</TableCell>
+                      <TableCell sx={{ width: "15%" }}>Default Coins</TableCell>
+                      <TableCell align="right" sx={{ width: "20%" }}>
+                        Actions
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {generalEventTypes.map((eventType) => (
+                      <TableRow key={eventType.eventTypeName}>
+                        <TableCell sx={{ width: "25%" }}>
+                          <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                            {eventType.eventTypeName}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ width: "40%" }}>
+                          <Typography variant="body2" color="text.secondary">
+                            {eventType.description || "-"}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ width: "15%" }}>
+                          <Typography variant="body2">{eventType.defaultCoins}</Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ width: "20%" }}>
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Tooltip title="Edit Event Type" arrow>
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleEdit(eventType)}
+                              >
+                                <EditIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete Event Type" arrow>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDelete(eventType)}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </CardContent>
+        </Card>
+        <Box sx={{ height: 36 }} />
+      </>
 
       {/* Create Modal */}
       <Dialog
@@ -382,8 +395,8 @@ export default function EventTypesManagement() {
               </DialogContent>
               <DialogActions>
                 <Button onClick={() => setCreateModalOpen(false)}>Cancel</Button>
-                <Button type="submit" variant="contained" disabled={state === State.loading}>
-                  {state === State.loading ? <CircularProgress size={20} /> : "Create"}
+                <Button type="submit" variant="contained" disabled={isCreating}>
+                  {isCreating ? <CircularProgress size={20} /> : "Create"}
                 </Button>
               </DialogActions>
             </Form>
@@ -471,8 +484,8 @@ export default function EventTypesManagement() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="contained" disabled={state === State.loading}>
-                    {state === State.loading ? <CircularProgress size={20} /> : "Update"}
+                  <Button type="submit" variant="contained" disabled={isUpdating}>
+                    {isUpdating ? <CircularProgress size={20} /> : "Update"}
                   </Button>
                 </DialogActions>
               </Form>
@@ -483,4 +496,3 @@ export default function EventTypesManagement() {
     </Container>
   );
 }
-

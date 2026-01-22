@@ -149,7 +149,7 @@ export interface CreateQrCodePayload {
 
 export interface ConferenceQrCodesResponse {
   totalCount: number;
-  qrs: ConferenceQrCode[];
+  qrCodes: ConferenceQrCode[];
 }
 
 export interface Session {

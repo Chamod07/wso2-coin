@@ -1,4 +1,4 @@
-// Copyright (c) 2025 WSO2 LLC. (https://www.wso2.com).
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
 //
 // WSO2 LLC. licenses this file to you under the Apache License,
 // Version 2.0 (the "License"); you may not use this file except
@@ -13,10 +13,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import { PayloadAction, createSlice } from "@reduxjs/toolkit";
-import { VariantType } from "notistack";
+import { type PayloadAction, createSlice } from "@reduxjs/toolkit";
+import type { VariantType } from "notistack";
 
-import { AppDispatch } from "@slices/store";
+import type { AppDispatch } from "@slices/store";
 
 export interface CommonState {
   message: string;
@@ -54,7 +54,7 @@ export function ShowSnackBarMessage(message: string, type: VariantType) {
       type: "common/enqueueSnackbarMessage",
       payload: {
         message: message,
-        type: "success",
+        type: type,
       },
     });
   };
