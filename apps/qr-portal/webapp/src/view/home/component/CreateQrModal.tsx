@@ -36,16 +36,21 @@ import * as Yup from "yup";
 import React, { useEffect, useMemo, useState } from "react";
 
 import { CreateQrCodePayload, QrCodeEventType, State } from "@/types/types";
+import ErrorHandler from "@root/src/component/common/ErrorHandler";
+import { useFetchEventTypesQuery } from "@root/src/services/eventTypesApi";
+import { useCreateQrCodeMutation } from "@root/src/services/qrApi";
+import { useFetchSessionsQuery, useLazyFetchSessionsQuery } from "@root/src/services/sessionApi";
+import { useGetUserInfoQuery } from "@root/src/services/userApi";
 import { Role } from "@slices/authSlice/auth";
-import { fetchEventTypes } from "@slices/eventTypesSlice/eventTypes";
-import { createQrCode } from "@slices/qrSlice/qr";
-import { fetchSessions } from "@slices/sessionSlice/session";
+// import { fetchEventTypes } from "@slices/eventTypesSlice/eventTypes";
+// import { createQrCode } from "@slices/qrSlice/qr";
+// import { fetchSessions } from "@slices/sessionSlice/session";
 import { RootState, useAppDispatch, useAppSelector } from "@slices/store";
 
 interface CreateQrModalProps {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  // onSuccess: () => void;
   onRefresh?: () => void;
 }
 
@@ -61,18 +66,22 @@ interface CreateQrFormValues {
 const CreateQrModal: React.FC<CreateQrModalProps> = ({ open, onClose, onRefresh }) => {
   const dispatch = useAppDispatch();
   const { roles } = useAppSelector((state: RootState) => state.auth);
-  const { userInfo } = useAppSelector((state: RootState) => state.user);
-  const { sessions } = useAppSelector((state: RootState) => state.session);
-  const { eventTypes } = useAppSelector((state: RootState) => state.eventTypes);
-  const { state } = useAppSelector((state: RootState) => state.qr);
+  // const { userInfo } = useAppSelector((state: RootState) => state.user);
+  // const { sessions } = useAppSelector((state: RootState) => state.session);
+  // const { eventTypes } = useAppSelector((state: RootState) => state.eventTypes);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [createdQrId, setCreatedQrId] = useState<string | null>(null);
 
+  const [createQrCodeMutation, { isLoading: isCreatingQr }] = useCreateQrCodeMutation();
+  const { data: eventTypes } = useFetchEventTypesQuery();
+  const { data: user } = useGetUserInfoQuery();
+  const { data: sessions } = useFetchSessionsQuery();
+  const [fetchSessions] = useLazyFetchSessionsQuery();
+
   useEffect(() => {
     if (open) {
-      dispatch(fetchEventTypes());
       if (roles.includes(Role.SESSION_ADMIN)) {
-        dispatch(fetchSessions());
+        fetchSessions();
       }
     }
   }, [open, dispatch, roles]);
@@ -81,6 +90,12 @@ const CreateQrModal: React.FC<CreateQrModalProps> = ({ open, onClose, onRefresh 
     setQrImageUrl(null);
     setCreatedQrId(null);
   };
+
+  if (!eventTypes) return <ErrorHandler message={"No Qr Code Found"} />;
+  if (!user) return <ErrorHandler message={"No Qr Code Found"} />;
+  if (!sessions) return <ErrorHandler message={"No Qr Code Found"} />;
+
+  const userInfo = user.UserInfo;
 
   const isGeneralAdmin = roles.includes(Role.GENERAL_ADMIN);
   const isSessionAdmin = roles.includes(Role.SESSION_ADMIN);
@@ -221,10 +236,32 @@ const CreateQrModal: React.FC<CreateQrModalProps> = ({ open, onClose, onRefresh 
       coins: Number(values.coins),
     };
 
-    const result = await dispatch(createQrCode(payload));
-    if (createQrCode.fulfilled.match(result)) {
-      const qrId = result.payload.qrId;
+    // const result = await createQrCodeMutation(payload);
+    // if (createQrCode.fulfilled.match(result)) {
+    //   const qrId = result.payload.qrId;
+    //   setCreatedQrId(qrId);
+    //   // Generate QR code image
+    //   try {
+    //     const qrDataUrl = await QRCode.toDataURL(qrId, {
+    //       width: 300,
+    //       margin: 2,
+    //     });
+    //     setQrImageUrl(qrDataUrl);
+    //   } catch (error) {
+    //     console.error("Failed to generate QR code:", error);
+    //   }
+    //   // Refresh the QR codes list immediately (without closing modal)
+    //   if (onRefresh) {
+    //     onRefresh();
+    //   }
+    // }
+
+    try {
+      // RTK Query mutation returns a promise, use .unwrap() to get the actual result
+      const result = await createQrCodeMutation(payload).unwrap();
+      const qrId = result.qrId;
       setCreatedQrId(qrId);
+
       // Generate QR code image
       try {
         const qrDataUrl = await QRCode.toDataURL(qrId, {
@@ -235,10 +272,9 @@ const CreateQrModal: React.FC<CreateQrModalProps> = ({ open, onClose, onRefresh 
       } catch (error) {
         console.error("Failed to generate QR code:", error);
       }
-      // Refresh the QR codes list immediately (without closing modal)
-      if (onRefresh) {
-        onRefresh();
-      }
+    } catch (error) {
+      console.error("Failed to create QR code:", error);
+      // Handle error (show toast, etc.)
     }
   };
 
@@ -273,7 +309,7 @@ const CreateQrModal: React.FC<CreateQrModalProps> = ({ open, onClose, onRefresh 
 
   const initialValues = {
     eventType: eventTypeOptions[0]?.value ?? getDefaultEventType(),
-    email: userInfo?.workEmail ?? "",
+    email: user?.UserInfo.workEmail,
     sessionId: "",
     eventTypeName: getInitialEventTypeName(),
     coins: getInitialCoins(),
@@ -583,8 +619,8 @@ const CreateQrModal: React.FC<CreateQrModalProps> = ({ open, onClose, onRefresh 
               {!createdQrId && (
                 <DialogActions>
                   <Button onClick={handleClose}>Cancel</Button>
-                  <Button type="submit" variant="contained" disabled={state === State.loading}>
-                    {state === State.loading ? <CircularProgress size={20} /> : "Create"}
+                  <Button type="submit" variant="contained" disabled={isCreatingQr}>
+                    {isCreatingQr ? <CircularProgress size={20} /> : "Create"}
                   </Button>
                 </DialogActions>
               )}

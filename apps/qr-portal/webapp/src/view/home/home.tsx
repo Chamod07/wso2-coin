@@ -55,14 +55,18 @@ import QRCode from "qrcode";
 
 import React, { useEffect, useMemo, useState } from "react";
 
-import { ConferenceQrCode, State } from "@/types/types";
+import { ConferenceQrCode } from "@/types/types";
 import NoSearchResults from "@assets/images/no-search-results.svg";
 import StateWithImage from "@component/ui/StateWithImage";
 import { useConfirmationModalContext } from "@context/DialogContext";
-import { fetchEventTypes } from "@slices/eventTypesSlice/eventTypes";
-import { deleteQrCode, fetchQrCodes, setLimit, setOffset } from "@slices/qrSlice/qr";
-import { fetchSessions } from "@slices/sessionSlice/session";
-import { RootState, useAppDispatch, useAppSelector } from "@slices/store";
+import ErrorHandler from "@root/src/component/common/ErrorHandler";
+import { useFetchEventTypesQuery } from "@root/src/services/eventTypesApi";
+import { useDeleteQrCodeMutation, useFetchQrCodesQuery } from "@root/src/services/qrApi";
+import { useFetchSessionsQuery } from "@root/src/services/sessionApi";
+import { useGetUserInfoQuery } from "@root/src/services/userApi";
+// import { fetchEventTypes } from "@slices/eventTypesSlice/eventTypes";
+// import { deleteQrCode, fetchQrCodes, setLimit, setOffset } from "@slices/qrSlice/qr";
+// import { fetchSessions } from "@slices/sessionSlice/session";
 import { ConfirmationType } from "@utils/types";
 
 import CreateQrModal from "./component/CreateQrModal";
@@ -70,29 +74,43 @@ import CreateQrModal from "./component/CreateQrModal";
 type ViewMode = "grid" | "list";
 
 export default function QrPortal() {
-  const dispatch = useAppDispatch();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { showConfirmation } = useConfirmationModalContext();
-  const { qrCodes, state, limit, offset, totalCount } = useAppSelector(
-    (state: RootState) => state.qr,
-  );
-  const { sessions } = useAppSelector((state: RootState) => state.session);
-  const { eventTypes } = useAppSelector((state: RootState) => state.eventTypes);
-  const { userInfo } = useAppSelector((state: RootState) => state.user);
+  // const { qrCodes, state, limit, offset, totalCount } = useAppSelector(
+  //   (state: RootState) => state.qr,
+  // );
+  // const { sessions } = useAppSelector((state: RootState) => state.session);
+  // const { eventTypes } = useAppSelector((state: RootState) => state.eventTypes);
+  // const { userInfo } = useAppSelector((state: RootState) => state.user);
+
+  // NEW: RTK Query hooks only
+  const [limit, setLimit] = useState(10);
+  const [offset, setOffset] = useState(0);
+
+  const { data: qrCodesResponse, isLoading } = useFetchQrCodesQuery({ limit, offset });
+  const { data: sessions } = useFetchSessionsQuery();
+  const { data: eventTypes } = useFetchEventTypesQuery();
+  const { data: user } = useGetUserInfoQuery();
+  const [deleteQrCodeMutation] = useDeleteQrCodeMutation();
+
+  // Extract data from response
+  const qrCodes = qrCodesResponse?.qrCodes || [];
+  const totalCount = qrCodesResponse?.totalCount || 0;
+
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [qrImages, setQrImages] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [page, setPage] = useState(0);
 
-  useEffect(() => {
-    dispatch(fetchQrCodes({ limit, offset }));
-    // Fetch sessions for search functionality
-    dispatch(fetchSessions());
-    // Fetch event types for display
-    dispatch(fetchEventTypes());
-  }, [dispatch, limit, offset]);
+  // useEffect(() => {
+  //   dispatch(fetchQrCodes({ limit, offset }));
+  //   // Fetch sessions for search functionality
+  //   dispatch(fetchSessions());
+  //   // Fetch event types for display
+  //   dispatch(fetchEventTypes());
+  // }, [dispatch, limit, offset]);
 
   // Update page when offset changes
   useEffect(() => {
@@ -103,12 +121,12 @@ export default function QrPortal() {
     // Pagination component uses 1-indexed pages, convert to 0-indexed
     const pageIndex = newPage - 1;
     const newOffset = pageIndex * limit;
-    dispatch(setOffset(newOffset));
+    setOffset(newOffset);
   };
 
   const handlePageSizeChange = (newPageSize: number) => {
-    dispatch(setLimit(newPageSize));
-    dispatch(setOffset(0));
+    setLimit(newPageSize);
+    setOffset(0);
     setPage(0);
   };
 
@@ -142,6 +160,11 @@ export default function QrPortal() {
     }
   }, [qrCodes]);
 
+  if (!qrCodesResponse) return <ErrorHandler message={"No Qr Code Found"} />;
+  if (!sessions) return <ErrorHandler message={"No Qr Code Found"} />;
+  if (!eventTypes) return <ErrorHandler message={"No Qr Code Found"} />;
+  if (!user) return <ErrorHandler message={"No Qr Code Found"} />;
+
   const handleDownload = async (qrId: string) => {
     try {
       const qrDataUrl = qrImages[qrId] || (await QRCode.toDataURL(qrId, { width: 400, margin: 2 }));
@@ -154,20 +177,31 @@ export default function QrPortal() {
     }
   };
 
+  // const handleDelete = async (qrId: string) => {
+  //   try {
+  //     await useDeleteQrCodeMutation(qrId).unwrap();
+  //     // No manual refresh needed - cache invalidation handles it
+  //   } catch (error) {
+  //     console.error("Delete failed:", error);
+  //   }
+  // };
+
   const handleDelete = (qrId: string) => {
     showConfirmation(
       "Delete QR Code",
       `Are you sure you want to delete the QR code? This action cannot be undone.`,
       ConfirmationType.delete,
       async () => {
-        const result = await dispatch(deleteQrCode(qrId));
-        if (deleteQrCode.fulfilled.match(result)) {
+        try {
+          const result = await deleteQrCodeMutation(qrId).unwrap();
+
           // Remove from images cache
           const newImages = { ...qrImages };
           delete newImages[qrId];
           setQrImages(newImages);
-          // Refresh the list
-          dispatch(fetchQrCodes({ limit, offset }));
+        } catch (error) {
+          console.error("Failed to delete QR code:", error);
+          // Handle error
         }
       },
       "Delete",
@@ -231,14 +265,14 @@ export default function QrPortal() {
     });
   }, [qrCodes, searchQuery, sessions]);
 
-  const handleCreateSuccess = () => {
-    setCreateModalOpen(false);
-    dispatch(fetchQrCodes({ limit, offset }));
-  };
+  // const handleCreateSuccess = () => {
+  //   setCreateModalOpen(false);
+  //   dispatch(fetchQrCodes({ limit, offset }));
+  // };
 
-  const handleRefresh = () => {
-    dispatch(fetchQrCodes({ limit, offset }));
-  };
+  // const handleRefresh = () => {
+  //   dispatch(fetchQrCodes({ limit, offset }));
+  // };
 
   const getDeletePermission = (qr: ConferenceQrCode, loggedInEmail: string) => {
     const isDeleteDisabled =
@@ -253,9 +287,9 @@ export default function QrPortal() {
     if (str.toUpperCase() === "SESSION" || str.toUpperCase() === "O2BAR") {
       return str.toUpperCase() === "SESSION" ? "Session" : "O2 Bar";
     }
-    
+
     const withSpaces = str.replace(/([a-z])([A-Z])/g, "$1 $2");
-    
+
     return withSpaces
       .toLowerCase()
       .split(/[\s_-]+/)
@@ -267,6 +301,7 @@ export default function QrPortal() {
       })
       .join(" ");
   };
+
   const getEventTypeDisplayName = (qr: ConferenceQrCode): string => {
     if (qr.info.eventType === "SESSION") {
       const sessionType = eventTypes.find((et) => et.category === "SESSION");
@@ -286,7 +321,7 @@ export default function QrPortal() {
   };
 
   // DataGrid columns for list view
-  const loggedInEmail = userInfo?.workEmail?.toLowerCase() ?? "";
+  const loggedInEmail = user?.UserInfo.workEmail;
 
   const columns: GridColDef[] = [
     {
@@ -558,7 +593,7 @@ export default function QrPortal() {
         )}
       </Box>
 
-      {state === State.loading && qrCodes.length === 0 ? (
+      {isLoading && qrCodes.length === 0 ? (
         <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
           <CircularProgress />
         </Box>
@@ -595,9 +630,7 @@ export default function QrPortal() {
                 isSession && sessionInfo
                   ? sessions.find((s) => s.id === sessionInfo.sessionId)
                   : null;
-              const eventTypeDisplayName = isGeneral
-                ? "General"
-                : getEventTypeDisplayName(qr);
+              const eventTypeDisplayName = isGeneral ? "General" : getEventTypeDisplayName(qr);
 
               const { isDeleteDisabled, deleteTooltipTitle } = getDeletePermission(
                 qr,
@@ -888,8 +921,8 @@ export default function QrPortal() {
       <CreateQrModal
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
-        onSuccess={handleCreateSuccess}
-        onRefresh={handleRefresh}
+        // onSuccess={handleCreateSuccess}
+        // onRefresh={handleRefresh}
       />
       <Box sx={{ height: 36 }} />
     </Container>

@@ -18,31 +18,35 @@ import { enableMapSet } from "immer";
 import { TypedUseSelectorHook, useDispatch, useSelector } from "react-redux";
 
 import { configApi } from "@services/config.api";
+import { eventTypesApi } from "@services/eventTypesApi";
+import { qrApi } from "@services/qrApi";
+import { sessionApi } from "@services/sessionApi";
+import { userApi } from "@services/userApi";
 import authReducer from "@slices/authSlice/auth";
 import commonReducer from "@slices/commonSlice/common";
-import appConfigReducer from "@slices/configSlice/config";
-import userReducer from "@slices/userSlice/user";
-
-import eventTypesReducer from "./eventTypesSlice/eventTypes";
-import qrReducer from "./qrSlice/qr";
-import sessionReducer from "./sessionSlice/session";
 
 enableMapSet();
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
-    user: userReducer,
     common: commonReducer,
-    appConfig: appConfigReducer,
-    qr: qrReducer,
-    session: sessionReducer,
-    eventTypes: eventTypesReducer,
 
     // RTK Query API reducers
     [configApi.reducerPath]: configApi.reducer,
+    [userApi.reducerPath]: userApi.reducer,
+    [sessionApi.reducerPath]: sessionApi.reducer,
+    [eventTypesApi.reducerPath]: eventTypesApi.reducer,
+    [qrApi.reducerPath]: qrApi.reducer,
   },
-  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(configApi.middleware),
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().concat(
+      configApi.middleware,
+      userApi.middleware,
+      sessionApi.middleware,
+      eventTypesApi.middleware,
+      qrApi.middleware,
+    ),
 });
 
 export type RootState = ReturnType<typeof store.getState>;
